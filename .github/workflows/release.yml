@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  id-token: write
+  contents: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Package source
+        run: |
+          zip -r video-batch-renamer-${{ github.ref_name }}.zip . \
+            --exclude "*.git*" --exclude ".github/*"
+
+      - name: Create release and upload asset
+        id: upload
+        uses: softprops/action-gh-release@v2
+        with:
+          files: video-batch-renamer-${{ github.ref_name }}.zip
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: video-batch-renamer-${{ github.ref_name }}.zip
