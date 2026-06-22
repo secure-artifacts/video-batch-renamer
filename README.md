@@ -58,6 +58,18 @@ pyinstaller --onefile --windowed --name 视频批量命名 video_renamer.py
 
 > 注意：PyInstaller 不能跨平台打包。要 Windows 的 `.exe` 必须在 Windows 上打包，要 Mac 的 `.app` 必须在 Mac 上打包。
 
+## 下载最新版本
+
+直接从右侧 **Releases** 栏下载，无需懂代码：
+
+1. 点右侧「**Releases**」→ 找到最新版（如 `v1.0.0`）
+2. 在「Assets」里下载 `video-batch-renamer-v1.0.0.zip`
+3. 解压后按照**怎么用**一节运行即可
+
+> 每个发布版本均附有 **构建来源证明（Build Provenance Attestation）**，可通过 GitHub 验证文件完整性，确保下载的程序未被篡改。
+
+---
+
 ## 技术说明
 
 - Google Sheet 复制出来是 **TSV**（Tab 分隔，含换行的长单元格被双引号包裹），用 `csv` 解析器按 Tab 解析，不是简单按行切分
