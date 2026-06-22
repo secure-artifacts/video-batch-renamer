@@ -1,0 +1,65 @@
+name: Build macOS app
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing GitHub release tag to upload assets to, for example v1.0.0. Leave blank to only build artifact.'
+        required: false
+        default: 'v1.0.0'
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS .app bundle
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build dependency
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Syntax check
+        run: python -m py_compile video_renamer.py
+
+      - name: Build app bundle
+        run: pyinstaller --onedir --windowed --name '视频批量命名' video_renamer.py
+
+      - name: Package macOS app zip
+        run: |
+          mkdir -p release
+          cp README.md release/README.md
+          ditto -c -k --sequesterRsrc --keepParent 'dist/视频批量命名.app' release/video-batch-renamer-macOS-app.zip
+          (cd release && shasum -a 256 video-batch-renamer-macOS-app.zip > SHA256SUMS-macOS.txt)
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-batch-renamer-macOS-app
+          path: |
+            release/video-batch-renamer-macOS-app.zip
+            release/SHA256SUMS-macOS.txt
+          if-no-files-found: error
+
+      - name: Upload to GitHub Release
+        if: ${{ github.event_name == 'push' || inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            release/video-batch-renamer-macOS-app.zip \
+            release/SHA256SUMS-macOS.txt \
+            --clobber
