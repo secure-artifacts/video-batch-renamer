@@ -42,6 +42,14 @@ RESERVED = {             # Windows 保留文件名
     *(f"LPT{i}" for i in range(1, 10)),
 }
 LOG_NAME = ".rename_log.json"
+
+# 序号识别方式: 界面下拉文字 -> 内部模式
+MODE_MAP = {
+    "自动(识别变化的数字)": "auto",
+    "取开头数字": "first",
+    "取结尾数字": "last",
+    "按文件排序位置": "position",
+}
 # --------------------------------------------------------------------------
 
 
@@ -91,13 +99,45 @@ def parse_sheet(raw: str) -> dict:
     return result
 
 
-def extract_number(stem: str):
-    """从文件名(去扩展名)里抽出序号, 取最后一组数字。返回 (值, 原始位宽)。"""
-    nums = re.findall(r"\d+", stem)
-    if not nums:
-        return None, 0
-    last = nums[-1]
-    return int(last), len(last)
+def digit_groups(stem: str):
+    return re.findall(r"\d+", stem)
+
+
+def natural_key(name: str):
+    """自然排序键: 把数字段按数值比较, 其余按字母。"""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", name)]
+
+
+def detect_group_index(stems) -> int:
+    """auto: 找在文件之间会变化的最左一组数字。
+
+    日期(0622)、分辨率(1080)这类在每个文件里都相同(不变), 只有真正的序号
+    01/02/03... 会逐个变化, 所以取"最左侧发生变化"的那组即命中序号。
+    """
+    groups = [g for g in (digit_groups(s) for s in stems) if g]
+    if not groups:
+        return 0
+    m = min(len(g) for g in groups)
+    for idx in range(m):
+        if len({g[idx] for g in groups}) > 1:
+            return idx
+    return 0   # 全部相同(或只有一个文件), 退回第一组
+
+
+def number_of(stem: str, mode: str, gidx):
+    """按模式从单个文件名取序号, 返回 (值, 原始数字串) 或 (None, None)。"""
+    groups = digit_groups(stem)
+    if not groups:
+        return None, None
+    if mode == "first":
+        s = groups[0]
+    elif mode == "last":
+        s = groups[-1]
+    else:  # auto
+        if gidx is None or gidx >= len(groups):
+            return None, None
+        s = groups[gidx]
+    return int(s), s
 
 
 def safe_stem(num: int, width: int, caption: str) -> str:
@@ -137,6 +177,12 @@ class App(tk.Tk):
         self.apply_btn = ttk.Button(btns, text="应用改名", command=self.apply, state="disabled")
         self.apply_btn.pack(side="left", padx=6)
         ttk.Button(btns, text="撤销上次", command=self.undo).pack(side="left")
+
+        ttk.Label(btns, text="    序号识别:").pack(side="left")
+        self.mode_var = tk.StringVar(value="自动(识别变化的数字)")
+        ttk.Combobox(btns, textvariable=self.mode_var, state="readonly", width=18,
+                     values=list(MODE_MAP)).pack(side="left", padx=4)
+        ttk.Label(btns, text="(改了要重新点预览)", foreground="#888").pack(side="left")
 
         cols = ("num", "old", "new", "status")
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=18)
@@ -180,15 +226,28 @@ class App(tk.Tk):
             messagebox.showwarning("提示", "该文件夹里没找到视频文件")
             return
 
-        # 位宽: 用原文件名里的数字位宽, 至少 2, 保证排序正确
-        widths = [extract_number(os.path.splitext(v)[0])[1] for v in videos]
-        width = max([w for w in widths if w] + [len(str(max(sheet)))] + [2])
+        mode = MODE_MAP.get(self.mode_var.get(), "auto")
+        stems = [os.path.splitext(v)[0] for v in videos]
+
+        # 先算出每个文件的序号 (filename -> (值, 数字串))
+        seq = {}
+        if mode == "position":
+            for i, v in enumerate(sorted(videos, key=natural_key), start=1):
+                seq[v] = (i, str(i))
+        else:
+            gidx = detect_group_index(stems) if mode == "auto" else None
+            for v, stem in zip(videos, stems):
+                seq[v] = number_of(stem, mode, gidx)
+
+        # 位宽: 取各序号字符串最大长度, 至少 2, 不少于表格最大序号位数, 保证排序正确
+        nums_str = [s for (n, s) in seq.values() if s]
+        width = max([len(s) for s in nums_str] + [len(str(max(sheet)))] + [2])
 
         rows = []
         seen_nums = {}
         for v in videos:
             stem, ext = os.path.splitext(v)
-            num, _ = extract_number(stem)
+            num, _ = seq[v]
             if num is None:
                 rows.append((9_999_999, v, "", "无序号", "warn"))
                 continue
